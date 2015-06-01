@@ -8,10 +8,6 @@ namespace GLnexus {
 /// Abstract interface to a key-value database underlying BCFKeyValueData
 namespace KeyValue {
 
-/// The DB is partitioned into collections of keys and values. This is an
-/// abstract handle to a collection.
-class Collection;
-
 /*
 class Iterator {
 public:
@@ -20,40 +16,128 @@ public:
 */
 
 /// A DB snapshot, from which consistent multiple reads may be taken
-class Snapshot {
+template<typename CollectionHandle>
+class Reader {
 public:
-    virtual Status get(Collection* coll, const std::string& key, std::string& value) = 0;
+    virtual Status get(const CollectionHandle& coll, const std::string& key, std::string& value) const = 0;
     //virtual Status iterator(Collection* coll, const std::string& key, std::unique_ptr<Iterator>& it) = 0;
 };
 
 /// A batch of writes to apply atomically
-class Writes {
+template<typename CollectionHandle>
+class WriteBatch {
 public:
-    virtual Status put(Collection* coll, const std::string& key, const std::string& value) = 0;
+    virtual Status put(const CollectionHandle& coll, const std::string& key, const std::string& value) = 0;
     //virtual Status delete(Collection* coll, const std::string& key) = 0;
 };
 
 /// Main database interface for retrieving collection handles, generating
 /// snapshopts to read from, and creating and applying write batches. The DB
-/// object itself implements the Snapshot interface (with no consistency
-/// guarantees between multiple calls) and the Writes intreface (with no
-/// atomicity guarantees between multiple calls). Caller must ensure that the
-/// parent DB object must still exists when any Snapshot or Writes object is
-/// used.
-class DB : public Snapshot, public Writes {
+/// object itself implements the Reader interface (with no consistency
+/// guarantees between multiple calls) and the WriteBatch interface (which
+/// applies one write immediately, no atomicity guarantees between multiple
+/// calls). Caller must ensure that the parent DB object still exists when any
+/// Reader or WriteBatch object is used.
+template<typename CollectionHandle, class ReaderImpl, class WriteBatchImpl>
+class DB : public ReaderImpl, public WriteBatchImpl {
 public:
-    virtual Status collection(const std::string& name, Collection** coll) = 0;
-    virtual Status current(std::unique_ptr<Snapshot>& snapshot) = 0;
-    virtual Status open_writes(std::unique_ptr<Writes>& writes) = 0;
-    virtual Status apply_writes(Writes* writes) = 0;
+    static_assert(std::is_base_of<Reader<CollectionHandle>, ReaderImpl>::value, "ReaderImpl must implement Reader interface");
+    static_assert(std::is_base_of<WriteBatch<CollectionHandle>, WriteBatchImpl>::value, "WriterImpl must implement Writer interface");
+    virtual Status collection(const std::string& name, CollectionHandle& coll) const = 0;
+    virtual Status current(std::unique_ptr<ReaderImpl>& snapshot) const = 0;
+    virtual Status begin_writes(std::unique_ptr<WriteBatchImpl>& writes) = 0;
+    virtual Status commit_writes(WriteBatchImpl* writes) = 0;
+
+    Status get(const CollectionHandle& coll, const std::string& key, std::string& value) const override;
+    Status put(const CollectionHandle& coll, const std::string& key, const std::string& value) override;
 };
 
+// trivial in-memory KeyValue::DB implementation
+namespace Mem {
+    class Reader : public KeyValue::Reader<uint64_t> {
+        std::vector<std::map<std::string,std::string>> data_;
+        friend class DB;
+
+    public:
+        Status get(const uint64_t& coll, const std::string& key, std::string& value) const override {
+            assert(coll < data_.size());
+            const auto& m = data_[coll];
+            auto p = m.find(key);
+            if (p == m.end()) return Status::NotFound("key", key);
+            value = p->second;
+            return Status::OK();
+        }
+    };
+
+    class WriteBatch : public KeyValue::WriteBatch<uint64_t> {
+        std::vector<std::map<std::string,std::string>> data_;
+        friend class DB;
+
+    public:
+        Status put(const uint64_t& coll, const std::string& key, const std::string& value) override {
+            assert(coll < data_.size());
+            data_[coll][key] = value;
+            return Status::OK();
+        };
+    };
+
+    class DB : public KeyValue::DB<uint64_t,Mem::Reader,Mem::WriteBatch> {
+        std::map<std::string,uint64_t> collections_;
+        std::vector<std::map<std::string,std::string>> data_;
+
+    public:
+        DB(const std::vector<std::string>& collections) {
+            for (uint64_t i = 0; i < collections.size(); i++) {
+                assert(collections_.find(collections[i]) == collections_.end());
+                collections_[collections[i]] = i;
+            }
+            data_ = std::vector<std::map<std::string,std::string>>(collections_.size());
+        }
+
+        Status collection(const std::string& name, uint64_t& coll) const override {
+            auto p = collections_.find(name);
+            if (p == collections_.end()) return Status::NotFound("KeyValue::Mem::collection", name);
+            coll = p->second;
+            return Status::OK();
+        }
+
+        Status current(std::unique_ptr<Mem::Reader>& reader) const override {
+            auto p = std::make_unique<KeyValue::Mem::Reader>();
+            p->data_ = data_;
+            reader = std::move(p);
+            return Status::OK();
+        }
+
+        Status begin_writes(std::unique_ptr<Mem::WriteBatch>& writes) override {
+            auto p = std::make_unique<Mem::WriteBatch>();
+            p->data_ = std::vector<std::map<std::string,std::string>>(data_.size());
+            writes = std::move(p);
+            return Status::OK();
+        }
+
+        Status commit_writes(Mem::WriteBatch* writes) override {
+            assert(writes != nullptr);
+            assert(writes->data_.size() <= data_.size());
+            for (size_t i = 0; i < writes->data_.size(); i++) {
+                for (const auto& p : writes->data_[i]) {
+                    data_[i][p.first] = p.second;
+                }
+            }
+            return Status::OK();
+        }
+    };
 }
+
+}
+
+
+
 
 /// An implementation of the Data interface that stores sample sets and BCF
 /// records in a given key-value database. One imported gVCF file (potentially
 /// with multiple samples) becomes a data set. The key schema permits
 /// efficient retrieval by genomic range across the datasets.
+template<class KeyValueDB>
 class BCFKeyValueData : public Data {
     struct body;
     std::unique_ptr<body> body_;
@@ -61,8 +145,8 @@ class BCFKeyValueData : public Data {
     BCFKeyValueData();
 
 public:
-    static Status InitializeDB(KeyValue::DB* db, const std::vector<std::pair<std::string,size_t> >& contigs);
-    static Status Open(KeyValue::DB* db, std::unique_ptr<BCFKeyValueData>& ans);
+    static Status InitializeDB(KeyValueDB* db, const std::vector<std::pair<std::string,size_t> >& contigs);
+    static Status Open(KeyValueDB* db, std::unique_ptr<BCFKeyValueData<KeyValueDB>>& ans);
     ~BCFKeyValueData();
 
     Status contigs(std::vector<std::pair<std::string,size_t> >& ans) const override;
