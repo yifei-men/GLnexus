@@ -79,6 +79,7 @@ add_library(glnexus
             include/service.h src/service.cc
             include/alleles.h src/alleles.cc
             include/genotyper.h src/genotyper.cc
+            include/KeyValue.h src/KeyValue.cc
             include/BCFKeyValueData.h src/BCFKeyValueData.cc)
 add_dependencies(glnexus htslib)
 add_dependencies(glnexus rocksdb)
