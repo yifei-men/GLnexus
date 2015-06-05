@@ -1,4 +1,5 @@
 #include "BCFKeyValueData.h"
+#include "yaml-cpp/yaml.h"
 #include <sstream>
 #include <iomanip>
 #include <assert.h>
@@ -25,21 +26,19 @@ Status BCFKeyValueData<KeyValueDB>::InitializeDB(KeyValueDB* db, const vector<pa
     typename KeyValueDB::collection_handle_type config;
     S(db->collection("config", config));
     set<string> prev_contigs;
-    int i = 0;
-    auto w = ceil(log10(contigs.size()));
+    YAML::Emitter yaml;
+    yaml << YAML::BeginSeq;
     for (const auto& p : contigs) {
         if (prev_contigs.find(p.first) != prev_contigs.end()) {
             return Status::Invalid("duplicate reference contig", p.first);
         }
-        ostringstream key;
-        key << "ctg:";
-        key << setw(w) << setfill('0') << i++;
-        key << ':';
-        key << p.first;
-        S(db->put(config, key.str(), to_string(p.second)));
-        prev_contigs.insert(p.first);
+        yaml << YAML::BeginMap;
+        yaml << YAML::Key << p.first;
+        yaml << YAML::Value << p.second;
+        yaml << YAML::EndMap;
     }
-    return Status::OK();
+    yaml << YAML::EndSeq;
+    return db->put(config, "contigs", yaml.c_str());
 }
 
 template<class KeyValueDB>
@@ -63,29 +62,30 @@ template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::contigs(vector<pair<string,size_t> >& ans) const {
     Status s;
     typename KeyValueDB::collection_handle_type coll;
-    unique_ptr<typename KeyValueDB::iterator_type> it;
-    string key, value;
-
     S(body_->db->collection("config", coll));
-    S(body_->db->iterator(coll, "ctg:", it));
 
+    const char *unexpected = "BCFKeyValueData::contigs unexpected YAML";
     ans.clear();
-    while ((s = it->next(key, value)).ok() && key.size() > 4 && key.substr(0, 4) == "ctg:") {
-        char *contig = strchr((char*)key.c_str() + 4, ':');
-        if (contig == nullptr || *(++contig) == 0) {
-            return Status::Invalid("corrupt database contig metadata (key name)", key);
+    try {
+        string contigs_yaml;
+        S(body_->db->get(coll, "contigs", contigs_yaml));
+        YAML::Node n = YAML::Load(contigs_yaml);
+        if (!n.IsSequence()) {
+            return Status::Invalid(unexpected, contigs_yaml);
         }
-        size_t sz;
-        try {
-            sz = stoul(value);
-        } catch (...) {
-            return Status::Invalid("corrupt database contig metadata (contig length)", key);
+        for (const auto& item : n) {
+            if (!item.IsMap() || item.size() != 1) {
+                return Status::Invalid(unexpected, contigs_yaml);
+            }
+            auto m = item.as<map<string,size_t>>();
+            assert (m.size() == 1);
+            ans.push_back(*(m.begin()));
         }
-        ans.push_back(make_pair(string(contig), sz));
+    } catch(YAML::Exception& exn) {
+        return Status::Invalid("BCFKeyValueData::contigs YAML parse error", exn.msg);
     }
-    if (s.bad() && s != StatusCode::NOT_FOUND) return s;
     if (ans.empty()) {
-        return Status::Invalid("database missing contig metadata");
+        return Status::Invalid("database has empty contigs metadata");
     }
 
     return Status::OK();

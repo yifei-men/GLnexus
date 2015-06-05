@@ -23,7 +23,8 @@ TEST_CASE("BCFKeyValueData initialization") {
 
     SECTION("contigs") {
         vector<pair<string,size_t>> contigs;
-        REQUIRE(data->contigs(contigs).ok());
+        Status s = data->contigs(contigs);
+        REQUIRE(s.ok());
         REQUIRE(contigs.size() == 2);
         REQUIRE(contigs[0].first == "21");
         REQUIRE(contigs[0].second == 1000000);
