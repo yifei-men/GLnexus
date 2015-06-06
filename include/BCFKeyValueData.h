@@ -16,7 +16,6 @@ class BCFKeyValueData : public Data {
     std::unique_ptr<body> body_;
 
     BCFKeyValueData();
-
 public:
     /// Initialize a brand-new database, which SHOULD be empty.
     static Status InitializeDB(KeyValueDB* db, const std::vector<std::pair<std::string,size_t> >& contigs);
@@ -39,7 +38,7 @@ public:
                        std::vector<std::shared_ptr<bcf1_t> >& records) const override;
 
     /// Import a new dataset
-    Status import_gvcf(const std::string& dataset, const std::string& filename);
+    Status import_gvcf(const DataCache* cache, const std::string& dataset, const std::string& filename);
 };
 
 }

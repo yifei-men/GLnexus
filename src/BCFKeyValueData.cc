@@ -239,16 +239,39 @@ public:
     }
 };
 
+// test whether a gVCF file is compatible for deposition into the database
+bool gvcf_compatible(const DataCache *cache, const bcf_hdr_t *hdr) {
+    Status s;
+    auto& contigs = cache->contigs();
+
+    // verify contigs match exactly. even the order matters
+
+    int ncontigs = 0;
+    const char **contignames = bcf_hdr_seqnames(hdr, &ncontigs);
+
+    if (ncontigs != contigs.size()) return false;
+
+    for (int i = 0; i < ncontigs; i++) {
+        if (string(contignames[i]) != contigs[i].first) return false;
+        // TODO: check contig lengths too
+        // REQUIRE(hdr->id[BCF_DT_CTG][0].val != nullptr);
+        // REQUIRE(hdr->id[BCF_DT_CTG][0].val->info[0] == 1000000);
+    }
+
+    return true;
+}
+
 template<class KeyValueDB>
-Status BCFKeyValueData<KeyValueDB>::import_gvcf(const string& dataset, const string& filename) {
+Status BCFKeyValueData<KeyValueDB>::import_gvcf(const DataCache* cache, const string& dataset, const string& filename) {
     unique_ptr<vcfFile, void(*)(vcfFile*)> vcf(bcf_open(filename.c_str(), "r"),
                                                [](vcfFile* f) { bcf_close(f); });
     if (!vcf) return Status::IOError("opening gVCF file", filename);
 
     unique_ptr<bcf_hdr_t, void(*)(bcf_hdr_t*)> hdr(bcf_hdr_read(vcf.get()), &bcf_hdr_destroy);
     if (!hdr) return Status::IOError("reading gVCF header", filename);
-    // TODO check that the contigs match the database
-    // consider making DataCache a template subclass...
+    if (!gvcf_compatible(cache, hdr.get())) {
+        return Status::Invalid("Incompatible gVCF. The reference contigs must match the database configuration exactly.", filename);
+    }
 
     vector<string> samples;
     unsigned n = bcf_hdr_nsamples(hdr);

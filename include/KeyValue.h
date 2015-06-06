@@ -205,6 +205,11 @@ namespace Mem {
             }
             return Status::OK();
         }
+
+        void wipe() {
+            collections_.clear();
+            data_.clear();
+        }
     };
 }
 

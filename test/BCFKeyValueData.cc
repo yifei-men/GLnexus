@@ -86,13 +86,15 @@ TEST_CASE("BCFKeyValueData initialization") {
 
 TEST_CASE("BCFKeyValueData::import_gvcf") {
     KeyValue::Mem::DB db({});
-    auto contigs = {make_pair<string,uint64_t>("21", 1000000), make_pair<string,uint64_t>("22", 1000001)};
+    auto contigs = {make_pair<string,uint64_t>("21", 1000000)};
     REQUIRE(T::InitializeDB(&db, contigs).ok());
     unique_ptr<T> data;
     REQUIRE(T::Open(&db, data).ok());
+    unique_ptr<DataCache> cache;
+    REQUIRE(DataCache::Start(data.get(), cache).ok());
 
     SECTION("NA12878D_HiSeqX.21.10009462-10009469.gvcf") {
-        Status s = data->import_gvcf("NA12878D", "test/data/NA12878D_HiSeqX.21.10009462-10009469.gvcf");
+        Status s = data->import_gvcf(cache.get(), "NA12878D", "test/data/NA12878D_HiSeqX.21.10009462-10009469.gvcf");
         REQUIRE(s.ok());
 
         string dataset;
@@ -100,5 +102,14 @@ TEST_CASE("BCFKeyValueData::import_gvcf") {
         REQUIRE(dataset == "NA12878D");
     }
 
-    // TODO test importing a gVCF with mismatching contigs
+    SECTION("incompatible contigs") {
+        db.wipe();
+        contigs = { make_pair<string,uint64_t>("21", 1000000), make_pair<string,uint64_t>("22", 1000000) };
+        Status s = T::InitializeDB(&db, contigs);
+        REQUIRE(s.ok());
+
+        REQUIRE(DataCache::Start(data.get(), cache).ok());
+        s = data->import_gvcf(cache.get(), "NA12878D", "test/data/NA12878D_HiSeqX.21.10009462-10009469.gvcf");
+        REQUIRE(s == StatusCode::INVALID);
+    }
 }
