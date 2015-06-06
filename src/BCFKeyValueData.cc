@@ -2,6 +2,7 @@
 #include "yaml-cpp/yaml.h"
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 #include <assert.h>
 #include <math.h>
 using namespace std;
@@ -17,12 +18,18 @@ struct BCFKeyValueData<KeyValueDB>::body {
 template<class KeyValueDB> BCFKeyValueData<KeyValueDB>::BCFKeyValueData() = default;
 template<class KeyValueDB> BCFKeyValueData<KeyValueDB>::~BCFKeyValueData() = default;
 
+auto collections { "config", "sampleset", "sampleset_dataset", "header", "bcf" };
+
 template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::InitializeDB(KeyValueDB* db, const vector<pair<string,size_t>>& contigs) {
     Status s;
-    S(db->create_collection("config"));
-    S(db->create_collection("headers"));
-    S(db->create_collection("records"));
+
+    // create collections
+    for (const auto& coll : collections) {
+        S(db->create_collection(coll));
+    }
+
+    // store contigs
     typename KeyValueDB::collection_handle_type config;
     S(db->collection("config", config));
     set<string> prev_contigs;
@@ -44,16 +51,18 @@ Status BCFKeyValueData<KeyValueDB>::InitializeDB(KeyValueDB* db, const vector<pa
 template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::Open(KeyValueDB* db, unique_ptr<BCFKeyValueData<KeyValueDB>>& ans) {
     assert(db != nullptr);
+    
+    // check database has been initialized
+    typename KeyValueDB::collection_handle_type coll;
+    for (const auto& collnm : collections) {
+        if (db->collection(collnm, coll).bad()) {
+            return Status::Invalid("database hasn't been properly initialized");
+        }
+    }
+
     ans.reset(new BCFKeyValueData<KeyValueDB>());
     ans->body_.reset(new body);
     ans->body_->db = db;
-    
-    typename KeyValueDB::collection_handle_type coll;
-    if (db->collection("config", coll).bad() ||
-        db->collection("headers", coll).bad() ||
-        db->collection("records", coll).bad()) {
-        return Status::Invalid("database hasn't been properly initialized");
-    }
 
     return Status::OK();
 }
@@ -63,6 +72,11 @@ Status BCFKeyValueData<KeyValueDB>::contigs(vector<pair<string,size_t> >& ans) c
     Status s;
     typename KeyValueDB::collection_handle_type coll;
     S(body_->db->collection("config", coll));
+
+    // the contigs entry in config contains a YAML list of contigname-size pairs:
+    // - 21: 1000000
+    // - 22: 1234567
+    // ...
 
     const char *unexpected = "BCFKeyValueData::contigs unexpected YAML";
     ans.clear();
@@ -93,8 +107,49 @@ Status BCFKeyValueData<KeyValueDB>::contigs(vector<pair<string,size_t> >& ans) c
 
 template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::sampleset_samples(const string& sampleset,
-                                          shared_ptr<const set<string> >& ans) const {
-    return Status::NotImplemented();
+                                                      shared_ptr<const set<string> >& ans) const {
+    Status s;
+    typename KeyValueDB::collection_handle_type coll;
+    S(body_->db->collection("sampleset",coll));
+
+    unique_ptr<typename KeyValueDB::iterator_type> it;
+    S(body_->db->iterator(coll, sampleset, it));
+
+    // samplesets collection key scheme:
+    // sampleset_id
+    // sampleset_id\0sample_1
+    // sampleset_id\0sample_2
+    // ...
+    // sampleset_id\0sample_n
+    // next_sampleset
+    // next_sampleset\0sample_1
+    // ...
+
+    string key, value;
+    s = it->next(key, value);
+    if (s == StatusCode::NOT_FOUND) {
+        return Status::NotFound("sample set not found", sampleset);
+    } else if (s.bad()) {
+        return s;
+    } else if (key != sampleset) {
+        return Status::NotFound("sample set not found", sampleset);
+    }
+
+    auto samples = make_shared<set<string>>();
+    while ((s = it->next(key, value)).ok()) {
+        size_t nullpos = key.find('\0');
+        if (nullpos == string::npos || key.substr(0, nullpos) != sampleset) {
+            break;
+        }
+        samples->insert(key.substr(nullpos+1));
+    }
+    if (s.bad() && s != StatusCode::NOT_FOUND) {
+        return s;
+    }
+    ans = samples;
+
+    return Status::OK();
+
 }
 
 template<class KeyValueDB>

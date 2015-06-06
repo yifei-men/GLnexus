@@ -8,7 +8,7 @@ using namespace GLnexus;
 using T = BCFKeyValueData<KeyValue::Mem::DB>;
 
 TEST_CASE("BCFKeyValueData construction on improperly initialized database") {
-    vector<string> collections = {"headers","records"};
+    vector<string> collections = {"header","bcf"};
     KeyValue::Mem::DB db(collections);
     unique_ptr<T> data;
     REQUIRE(T::Open(&db, data) == StatusCode::INVALID);
@@ -30,6 +30,37 @@ TEST_CASE("BCFKeyValueData initialization") {
         REQUIRE(contigs[0].second == 1000000);
         REQUIRE(contigs[1].first == "22");
         REQUIRE(contigs[1].second == 1000001);
+    }
+
+    SECTION("sampleset_samples") {
+        typename KeyValue::Mem::DB::collection_handle_type coll;
+        string null(1, '\0');
+        REQUIRE(db.collection("sampleset", coll).ok());
+        REQUIRE(db.put(coll, "trio1", "").ok());
+        REQUIRE(db.put(coll, "trio1" + null + "fa", "").ok());
+        REQUIRE(db.put(coll, "trio1" + null + "mo", "").ok());
+        REQUIRE(db.put(coll, "trio1" + null + "ch", "").ok());
+        REQUIRE(db.put(coll, "trio2", "").ok());
+        REQUIRE(db.put(coll, "trio2" + null + "fa2", "").ok());
+        REQUIRE(db.put(coll, "trio2" + null + "mo2", "").ok());
+        REQUIRE(db.put(coll, "trio2" + null + "ch2", "").ok());
+
+        shared_ptr<const set<string>> samples;
+        REQUIRE(data->sampleset_samples("trio1", samples).ok());
+        REQUIRE(samples->size() == 3);
+        REQUIRE(samples->find("fa") != samples->end());
+        REQUIRE(samples->find("mo") != samples->end());
+        REQUIRE(samples->find("ch") != samples->end());
+        REQUIRE(samples->find("fa2") == samples->end());
+
+        REQUIRE(data->sampleset_samples("trio2", samples).ok());
+        REQUIRE(samples->size() == 3);
+        REQUIRE(samples->find("fa2") != samples->end());
+        REQUIRE(samples->find("mo2") != samples->end());
+        REQUIRE(samples->find("ch2") != samples->end());
+        REQUIRE(samples->find("fa") == samples->end());
+
+        REQUIRE(data->sampleset_samples("bogus", samples) == StatusCode::NOT_FOUND);
     }
 }
 
