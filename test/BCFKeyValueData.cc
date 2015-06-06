@@ -62,5 +62,25 @@ TEST_CASE("BCFKeyValueData initialization") {
 
         REQUIRE(data->sampleset_samples("bogus", samples) == StatusCode::NOT_FOUND);
     }
+
+    SECTION("sample_dataset") {
+        typename KeyValue::Mem::DB::collection_handle_type coll;
+        REQUIRE(db.collection("sample_dataset", coll).ok());
+        REQUIRE(db.put(coll, "fa", "trio1").ok());
+        REQUIRE(db.put(coll, "mo", "trio1").ok());
+        REQUIRE(db.put(coll, "ch", "trio1").ok());
+        REQUIRE(db.put(coll, "fa2", "trio2").ok());
+        REQUIRE(db.put(coll, "mo2", "trio2").ok());
+        REQUIRE(db.put(coll, "ch2", "trio2").ok());
+
+        string dataset;
+        REQUIRE(data->sample_dataset("fa", dataset).ok());
+        REQUIRE(dataset == "trio1");
+        REQUIRE(data->sample_dataset("ch", dataset).ok());
+        REQUIRE(dataset == "trio1");
+        REQUIRE(data->sample_dataset("mo2", dataset).ok());
+        REQUIRE(dataset == "trio2");
+        REQUIRE(data->sample_dataset("bogus", dataset) == StatusCode::NOT_FOUND);
+    }
 }
 

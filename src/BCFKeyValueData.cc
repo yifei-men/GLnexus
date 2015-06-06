@@ -18,7 +18,7 @@ struct BCFKeyValueData<KeyValueDB>::body {
 template<class KeyValueDB> BCFKeyValueData<KeyValueDB>::BCFKeyValueData() = default;
 template<class KeyValueDB> BCFKeyValueData<KeyValueDB>::~BCFKeyValueData() = default;
 
-auto collections { "config", "sampleset", "sampleset_dataset", "header", "bcf" };
+auto collections { "config", "sampleset", "sample_dataset", "header", "bcf" };
 
 template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::InitializeDB(KeyValueDB* db, const vector<pair<string,size_t>>& contigs) {
@@ -153,8 +153,11 @@ Status BCFKeyValueData<KeyValueDB>::sampleset_samples(const string& sampleset,
 }
 
 template<class KeyValueDB>
-Status BCFKeyValueData<KeyValueDB>::sample_dataset(const string& sampleset, string& ans) const {
-    return Status::NotImplemented();
+Status BCFKeyValueData<KeyValueDB>::sample_dataset(const string& sample, string& ans) const {
+    Status s;
+    typename KeyValueDB::collection_handle_type coll;
+    S(body_->db->collection("sample_dataset",coll));
+    return body_->db->get(coll, sample, ans);
 }
 
 template<class KeyValueDB>

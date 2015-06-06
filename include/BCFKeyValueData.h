@@ -30,7 +30,7 @@ public:
     Status contigs(std::vector<std::pair<std::string,size_t> >& ans) const override;
     Status sampleset_samples(const std::string& sampleset,
                              std::shared_ptr<const std::set<std::string> >& ans) const override;
-    Status sample_dataset(const std::string& sampleset, std::string& ans) const override;
+    Status sample_dataset(const std::string& sample, std::string& ans) const override;
     
     Status dataset_bcf_header(const std::string& dataset,
                               std::shared_ptr<const bcf_hdr_t>& hdr) const override;
