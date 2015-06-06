@@ -56,6 +56,7 @@ class DB : public ReaderImpl, public WriteBatchImpl {
 public:
     using collection_handle_type = CollectionHandle;
     using iterator_type = IteratorImpl;
+    using write_batch_type = WriteBatchImpl;
     static_assert(std::is_base_of<Reader<CollectionHandle,IteratorImpl>, ReaderImpl>::value, "ReaderImpl must implement Reader interface");
     static_assert(std::is_base_of<WriteBatch<CollectionHandle>, WriteBatchImpl>::value, "WriterImpl must implement Writer interface");
     static_assert(std::is_base_of<Iterator, IteratorImpl>::value, "IteratorImpl must implement Iterator interface");

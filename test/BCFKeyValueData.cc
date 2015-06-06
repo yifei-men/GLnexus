@@ -84,3 +84,21 @@ TEST_CASE("BCFKeyValueData initialization") {
     }
 }
 
+TEST_CASE("BCFKeyValueData::import_gvcf") {
+    KeyValue::Mem::DB db({});
+    auto contigs = {make_pair<string,uint64_t>("21", 1000000), make_pair<string,uint64_t>("22", 1000001)};
+    REQUIRE(T::InitializeDB(&db, contigs).ok());
+    unique_ptr<T> data;
+    REQUIRE(T::Open(&db, data).ok());
+
+    SECTION("NA12878D_HiSeqX.21.10009462-10009469.gvcf") {
+        Status s = data->import_gvcf("NA12878D", "test/data/NA12878D_HiSeqX.21.10009462-10009469.gvcf");
+        REQUIRE(s.ok());
+
+        string dataset;
+        REQUIRE(data->sample_dataset("NA12878", dataset).ok());
+        REQUIRE(dataset == "NA12878D");
+    }
+
+    // TODO test importing a gVCF with mismatching contigs
+}
