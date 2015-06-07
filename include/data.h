@@ -79,7 +79,7 @@ class DataCache : public Data {
 
 public:
     static Status Start(Data *data, std::unique_ptr<DataCache>& ptr);
-    ~DataCache();
+    virtual ~DataCache();
 
     Status contigs(std::vector<std::pair<std::string,size_t> >& ans) const override;
     Status sampleset_samples(const std::string& sampleset,

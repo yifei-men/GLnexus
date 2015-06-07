@@ -139,4 +139,66 @@ TEST_CASE("BCFKeyValueData BCF retrieval") {
         REQUIRE(samples.size() == 1);
         REQUIRE(samples[0] == "NA12878");
     }
+
+    SECTION("dataset_bcf") {
+        // get all records
+        shared_ptr<const bcf_hdr_t> hdr;
+        vector<shared_ptr<bcf1_t>> records;
+        s = data->dataset_bcf("NA12878D", range(0, 0, 1000000000), hdr, records);
+        REQUIRE(s.ok());
+
+        REQUIRE(records.size() == 5);
+
+        REQUIRE(records[0]->pos == 10009461);
+        REQUIRE(records[1]->rlen == 2);
+        REQUIRE(records[0]->n_allele == 2);
+        REQUIRE(string(records[0]->d.allele[0]) == "T");
+        REQUIRE(string(records[0]->d.allele[1]) == "<NON_REF>");
+        REQUIRE(bcf_get_info(hdr.get(), records[0].get(), "END")->v1.i == 10009463); // nb END stays 1-based!
+
+        REQUIRE(records[1]->pos == 10009463);
+        REQUIRE(records[1]->rlen == 2);
+        REQUIRE(records[1]->n_allele == 3);
+        REQUIRE(string(records[1]->d.allele[0]) == "TA");
+        REQUIRE(string(records[1]->d.allele[1]) == "T");
+        REQUIRE(string(records[1]->d.allele[2]) == "<NON_REF>");
+
+        REQUIRE(records[2]->rlen == 1);
+
+        REQUIRE(records[4]->pos == 10009468);
+        REQUIRE(records[4]->n_allele == 2);
+        REQUIRE(string(records[4]->d.allele[0]) == "A");
+        REQUIRE(string(records[4]->d.allele[1]) == "<NON_REF>");
+        REQUIRE(bcf_get_info(hdr.get(), records[4].get(), "END")->v1.i == 10009471); // nb END stays 1-based!
+
+        // subset of records
+        s = data->dataset_bcf("NA12878D", range(0, 10009463, 10009466), hdr, records);
+        REQUIRE(s.ok());
+
+        REQUIRE(records.size() == 2);
+
+        REQUIRE(records[0]->pos == 10009463);
+        REQUIRE(records[0]->n_allele == 3);
+        REQUIRE(string(records[0]->d.allele[0]) == "TA");
+        REQUIRE(string(records[0]->d.allele[1]) == "T");
+        REQUIRE(string(records[0]->d.allele[2]) == "<NON_REF>");
+
+        REQUIRE(records[1]->pos == 10009465);
+        REQUIRE(records[1]->n_allele == 2);
+        REQUIRE(string(records[1]->d.allele[0]) == "A");
+        REQUIRE(string(records[1]->d.allele[1]) == "<NON_REF>");
+
+        // empty results
+        s = data->dataset_bcf("NA12878D", range(0, 0, 1000), hdr, records);
+        REQUIRE(s.ok());
+        REQUIRE(records.size() == 0);
+
+        s = data->dataset_bcf("NA12878D", range(1, 10009463, 10009466), hdr, records);
+        REQUIRE(s.ok());
+        REQUIRE(records.size() == 0);
+
+        // bogus dataset
+        s = data->dataset_bcf("bogus", range(1, 10009463, 10009466), hdr, records);
+        REQUIRE(s == StatusCode::NOT_FOUND);
+    }
 }

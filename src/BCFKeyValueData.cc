@@ -164,7 +164,7 @@ Status BCFKeyValueData<KeyValueDB>::sample_dataset(const string& sample, string&
 
 /// Helper classes to de/serialize BCF records to memory buffers
 class BCFReader {
-    shared_ptr<bcf_hdr_t> hdr_;
+    shared_ptr<const bcf_hdr_t> hdr_;
     vcfFile *bcf_ = nullptr;
     const char* buf_ = nullptr;
     size_t bufsz_;
@@ -173,7 +173,7 @@ class BCFReader {
 
 public:
     // hdr should be null iff the data begins with the header.
-    static Status Open(shared_ptr<bcf_hdr_t> hdr, const char* buf, size_t bufsz, unique_ptr<BCFReader>& ans) {
+    static Status Open(shared_ptr<const bcf_hdr_t> hdr, const char* buf, size_t bufsz, unique_ptr<BCFReader>& ans) {
         ans.reset(new BCFReader(buf));
         ans->bufsz_ = bufsz;
 
@@ -198,22 +198,23 @@ public:
         return Status::OK();
     }
 
-    ~BCFReader() {
+    virtual ~BCFReader() {
         if (bcf_) {
             bcf_close(bcf_);
         }
     }
 
-    shared_ptr<bcf_hdr_t> header() const {
+    shared_ptr<const bcf_hdr_t> header() const {
         assert(hdr_);
         return hdr_;
     }
 
     Status read(shared_ptr<bcf1_t>& ans) {
-        if (ans) {
+        if (!ans) {
             ans = shared_ptr<bcf1_t>(bcf_init(), &bcf_destroy);
         }
-        switch (bcf_read(bcf_, hdr_.get(), ans.get())) {
+        // TODO use bcf_read; need to override htsFile format detection
+        switch (vcf_read(bcf_, hdr_.get(), ans.get())) {
             case 0: return Status::OK();
             case -1: return Status::NotFound();
         }
@@ -254,7 +255,7 @@ public:
         return Status::OK();
     }
 
-    ~BCFWriter() {
+    virtual ~BCFWriter() {
         if (bcf_) {
             bcf_close(bcf_);
         }
@@ -286,12 +287,14 @@ public:
 template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::dataset_bcf_header(const string& dataset,
                                                        shared_ptr<const bcf_hdr_t>& hdr) const {
+    // Retrieve the header
     Status s;
     typename KeyValueDB::collection_handle_type coll;
     S(body_->db->collection("header",coll));
     string data;
     S(body_->db->get(coll, dataset, data));
 
+    // Parse the header
     unique_ptr<BCFReader> reader;
     S(BCFReader::Open(nullptr, data.c_str(), data.size(), reader));
     hdr = reader->header();
@@ -303,8 +306,34 @@ template<class KeyValueDB>
 Status BCFKeyValueData<KeyValueDB>::dataset_bcf(const string& dataset, const range& pos,
                                                 shared_ptr<const bcf_hdr_t>& hdr,
                                                 vector<shared_ptr<bcf1_t> >& records) const {
+    // TODO cache header...
+    Status s;
+    S(dataset_bcf_header(dataset, hdr));
+
+    // Retrieve the pertinent DB entries
+    // Placeholder: one DB entry per dataset...
+    typename KeyValueDB::collection_handle_type coll;
+    S(body_->db->collection("bcf",coll));
+    string data;
+    S(body_->db->get(coll, dataset, data));
+
+    // Parse the records and extract those overlapping pos
+    unique_ptr<BCFReader> reader;
+    S(BCFReader::Open(hdr, data.c_str(), data.size(), reader));
+
     records.clear();
-    return Status::NotImplemented();
+    shared_ptr<bcf1_t> vt;
+    while ((s = reader->read(vt)).ok()) {
+        assert(vt);
+        if (pos.overlaps(vt.get())) {
+            if (bcf_unpack(vt.get(), BCF_UN_ALL) != 0) {
+                return Status::IOError("BCFKeyValueData::dataset_bcf bcf_unpack", dataset + "@" + pos.str());
+            }
+            records.push_back(vt);
+        }
+        vt.reset(); // important! otherwise reader overwrites the stored copy.
+    }
+    return Status::OK();
 }
 
 // test whether a gVCF file is compatible for deposition into the database

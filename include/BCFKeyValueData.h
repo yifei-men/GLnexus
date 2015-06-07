@@ -23,7 +23,7 @@ public:
     /// Open an existing database
     static Status Open(KeyValueDB* db, std::unique_ptr<BCFKeyValueData<KeyValueDB>>& ans);
 
-    ~BCFKeyValueData();
+    virtual ~BCFKeyValueData();
 
     // Data interface
     Status contigs(std::vector<std::pair<std::string,size_t> >& ans) const override;
