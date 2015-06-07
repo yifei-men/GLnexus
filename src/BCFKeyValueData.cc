@@ -162,21 +162,65 @@ Status BCFKeyValueData<KeyValueDB>::sample_dataset(const string& sample, string&
     return body_->db->get(coll, sample, ans);
 }
 
-template<class KeyValueDB>
-Status BCFKeyValueData<KeyValueDB>::dataset_bcf_header(const string& dataset,
-                                                       shared_ptr<const bcf_hdr_t>& hdr) const {
-    return Status::NotImplemented();
-}
+/// Helper classes to de/serialize BCF records to memory buffers
+class BCFReader {
+    shared_ptr<bcf_hdr_t> hdr_;
+    vcfFile *bcf_ = nullptr;
+    const char* buf_ = nullptr;
+    size_t bufsz_;
 
-template<class KeyValueDB>
-Status BCFKeyValueData<KeyValueDB>::dataset_bcf(const string& dataset, const range& pos,
-                                                shared_ptr<const bcf_hdr_t>& hdr,
-                                                vector<shared_ptr<bcf1_t> >& records) const {
-    records.clear();
-    return Status::NotImplemented();
-}
+    BCFReader(const char* buf) : buf_(buf) {}
 
-/// Helper class to serialize one or more BCF records to an in-memory buffer
+public:
+    // hdr should be null iff the data begins with the header.
+    static Status Open(shared_ptr<bcf_hdr_t> hdr, const char* buf, size_t bufsz, unique_ptr<BCFReader>& ans) {
+        ans.reset(new BCFReader(buf));
+        ans->bufsz_ = bufsz;
+
+        char fn[4+sizeof(void**)+sizeof(size_t*)];
+        char *pfn = fn;
+
+        memcpy(pfn, "mem:", 4);
+        *(char***)(pfn+4) = (char**) &(ans->buf_);
+        *(size_t**)(pfn+4+sizeof(void**)) = &(ans->bufsz_);
+
+        ans->bcf_ = bcf_open(pfn, "r");
+        if (!ans->bcf_) return Status::Failure("BCFReader::Open");
+
+        if (!hdr) {
+            hdr = shared_ptr<bcf_hdr_t>(bcf_hdr_read(ans->bcf_), &bcf_hdr_destroy);
+            if (!hdr) {
+                return Status::IOError("BCFReader::Open bcf_hdr_read");
+            }
+        }
+        ans->hdr_ = hdr;
+
+        return Status::OK();
+    }
+
+    ~BCFReader() {
+        if (bcf_) {
+            bcf_close(bcf_);
+        }
+    }
+
+    shared_ptr<bcf_hdr_t> header() const {
+        assert(hdr_);
+        return hdr_;
+    }
+
+    Status read(shared_ptr<bcf1_t>& ans) {
+        if (ans) {
+            ans = shared_ptr<bcf1_t>(bcf_init(), &bcf_destroy);
+        }
+        switch (bcf_read(bcf_, hdr_.get(), ans.get())) {
+            case 0: return Status::OK();
+            case -1: return Status::NotFound();
+        }
+        return Status::IOError("BCFReader::read bcf_read");
+    }
+};
+
 class BCFWriter {
     bcf_hdr_t *hdr_;
     vcfFile *bcf_ = nullptr;
@@ -239,6 +283,30 @@ public:
     }
 };
 
+template<class KeyValueDB>
+Status BCFKeyValueData<KeyValueDB>::dataset_bcf_header(const string& dataset,
+                                                       shared_ptr<const bcf_hdr_t>& hdr) const {
+    Status s;
+    typename KeyValueDB::collection_handle_type coll;
+    S(body_->db->collection("header",coll));
+    string data;
+    S(body_->db->get(coll, dataset, data));
+
+    unique_ptr<BCFReader> reader;
+    S(BCFReader::Open(nullptr, data.c_str(), data.size(), reader));
+    hdr = reader->header();
+    assert(hdr);
+    return Status::OK();
+}
+
+template<class KeyValueDB>
+Status BCFKeyValueData<KeyValueDB>::dataset_bcf(const string& dataset, const range& pos,
+                                                shared_ptr<const bcf_hdr_t>& hdr,
+                                                vector<shared_ptr<bcf1_t> >& records) const {
+    records.clear();
+    return Status::NotImplemented();
+}
+
 // test whether a gVCF file is compatible for deposition into the database
 bool gvcf_compatible(const DataCache *cache, const bcf_hdr_t *hdr) {
     Status s;
@@ -300,14 +368,22 @@ Status BCFKeyValueData<KeyValueDB>::import_gvcf(const DataCache* cache, const st
     string data;
     S(writer->contents(data));
 
-    typename KeyValueDB::collection_handle_type coll_bcf, coll_sample_dataset;
+    typename KeyValueDB::collection_handle_type coll_bcf;
     S(body_->db->collection("bcf", coll_bcf));
     S(body_->db->put(coll_bcf, dataset, data));
 
-    // Store metadata
+    // Serialize header
+    writer.release();
+    S(BCFWriter::Open(hdr.get(), true, writer));
+    S(writer->contents(data));
+
+    // Store header and metadata
+    typename KeyValueDB::collection_handle_type coll_header, coll_sample_dataset;
+    S(body_->db->collection("header", coll_header));
     S(body_->db->collection("sample_dataset", coll_sample_dataset));
     unique_ptr<typename KeyValueDB::write_batch_type> wb;
     S(body_->db->begin_writes(wb));
+    S(wb->put(coll_header, dataset, data));
     for (const auto& sample : samples) {
         S(wb->put(coll_sample_dataset, sample, dataset));
     }

@@ -113,3 +113,30 @@ TEST_CASE("BCFKeyValueData::import_gvcf") {
         REQUIRE(s == StatusCode::INVALID);
     }
 }
+
+TEST_CASE("BCFKeyValueData BCF retrieval") {
+    KeyValue::Mem::DB db({});
+    auto contigs = {make_pair<string,uint64_t>("21", 1000000)};
+    REQUIRE(T::InitializeDB(&db, contigs).ok());
+    unique_ptr<T> data;
+    REQUIRE(T::Open(&db, data).ok());
+    unique_ptr<DataCache> cache;
+    REQUIRE(DataCache::Start(data.get(), cache).ok());
+
+    Status s = data->import_gvcf(cache.get(), "NA12878D", "test/data/NA12878D_HiSeqX.21.10009462-10009469.gvcf");
+    REQUIRE(s.ok());
+
+    SECTION("dataset_bcf_header") {
+        shared_ptr<const bcf_hdr_t> hdr;
+        s = data->dataset_bcf_header("NA12878D", hdr);
+        REQUIRE(s.ok());
+
+        vector<string> samples;
+        unsigned n = bcf_hdr_nsamples(hdr.get());
+        for (unsigned i = 0; i < n; i++) {
+            samples.push_back(string(bcf_hdr_int2id(hdr.get(), BCF_DT_SAMPLE, i)));
+        }
+        REQUIRE(samples.size() == 1);
+        REQUIRE(samples[0] == "NA12878");
+    }
+}
