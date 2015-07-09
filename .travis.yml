@@ -1,5 +1,4 @@
 language: cpp
 compiler:
   - gcc
-before_script:: cmake -Dtest=ON .
-script: make && ./unit_tests
+script: cmake -Dtest=ON . && make && ./unit_tests
