@@ -1,17 +1,24 @@
 language: cpp
-sudo: yes
+sudo: false
+
+compiler:
+  - gcc
+
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++-4.9
+      - libjemalloc-dev
+      - libboost-dev
 
 before_install:
-  - sudo apt-get install libjemalloc-dev
-  - sudo apt-get install libboost-dev
-  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-  - sudo apt-get update
-  - sudo apt-get install gcc-4.9 g++-4.9
-  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-4.9
-  - wget http://www.cmake.org/files/v3.3/cmake-3.3.0-rc3.tar.gz
-  - tar -xvf cmake-3.3.0-rc3.tar.gz
-  - cd cmake-3.3.0-rc3
-  - cmake . && make && sudo make install
+  - wget http://www.cmake.org/files/v3.3/cmake-3.3.0-rc3-Linux-x86_64.sh
+  - sh cmake-3.3.0-rc3-Linux-x86_64.sh --prefix=$HOME --exclude-subdir
+
+  # use g++-4.9 if g++ is our compiler
+  - export CXX=g++-4.9
 
 script:
   - cmake --version
