@@ -11,27 +11,34 @@ addons:
       - libboost-dev
 
 cache:
-  # need to catch multiple folders within build (?)
+  - $HOME/catch/
+  - $HOME/src/rocksdb-3.10.2.zip
+  - $HOME/src/rocksdb/
+  - $HOME/src/rocksdb-stamp/
+  - $HOME/src/3c8ae031.zip
+  - $HOME/src/htslib/
+  - $HOME/src/htslib-stamp/
+  - $HOME/src/release-0.5.2.zip
+  - $HOME/src/yaml-cpp/
+  - $HOME/src/yaml-cpp-stamp/
 
 before_install:
   # install updated version of cmake
   - wget http://www.cmake.org/files/v3.3/cmake-3.3.0-rc3-Linux-x86_64.sh
   - sh cmake-3.3.0-rc3-Linux-x86_64.sh --prefix=$HOME --exclude-subdir
 
-  # get gcc 4.9
   - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
   - sudo apt-get update
   - sudo apt-get install gcc-4.9 g++-4.9
   - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-4.9
 
-  # get updated version of boost
   - sudo add-apt-repository -y ppa:boost-latest/ppa
   - sudo apt-get update
-  - sudo apt-get install boost1.55
+  - sudo apt-get install libboost1.58-dev
 
 script:
   # Ensure accurate version of CMake and GCC
   - cmake --version
   - gcc --version
-
+  - ls $HOME
   - cmake -Dtest=ON . && make && ./unit_tests
