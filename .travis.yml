@@ -40,4 +40,6 @@ script:
   - cmake --version
   - gcc --version
   - ls $HOME
-  - cmake -Dtest=ON . && make && ./unit_tests
+  - echo $HOME
+  - pwd
+  # - cmake -Dtest=ON . && make && ./unit_tests
